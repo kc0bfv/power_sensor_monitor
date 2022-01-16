@@ -1,0 +1,24 @@
+services:
+    webhook_catcher:
+        build: webhook_catcher/
+        ports:
+            - "8080:8080"
+        volumes:
+            - ./webhook_data:/opt/webhook_data/
+        environment:
+            PORT: "8080"
+            URL_BASE: "webhook"
+            WRITE_KEY: "D44w4hUEEmJDjT7vMtUj"
+            READ_KEY: "CamzKp9jqmCu4jvtRWwN"
+            WRITE_DIR: "/opt/webhook_data/"
+    web:
+        image: nginx
+        ports:
+            - "8081:80"
+        volumes:
+            - ./webhook_data:/tmp/webhook_data/
+            - ./nginx_templates:/etc/nginx/templates
+        environment:
+            PORT: 80
+            SERVER_NAME: lakedata.notmet.net
+            ROOT: /tmp/webhook_data
