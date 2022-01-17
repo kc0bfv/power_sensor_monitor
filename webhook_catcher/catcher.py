@@ -5,6 +5,9 @@ import json
 import os
 import os.path
 import re
+import signal
+
+WRITE_FREQ = 100
 
 class Endpoint:
     def __init__(self, write_key, read_key, write_dir, max_file_lines):
@@ -13,23 +16,37 @@ class Endpoint:
         self.write_dir = write_dir
         self.write_file = os.path.join(self.write_dir, self.read_key)
         self.max_file_lines = max_file_lines
-        self.cur_lines = None
+        self.count = 0
+        self.read_file()
+
+    def read_file(self):
+        try:
+            with open(self.write_file, "r") as fin:
+                self.cur_lines = json.loads(fin.read())
+        except FileNotFoundError:
+            self.cur_lines = list()
+
     def write(self, out_obj):
-        if self.cur_lines is None:
-            try:
-                with open(self.write_file, "r") as fin:
-                    self.cur_lines = json.loads(fin.read())
-            except FileNotFoundError:
-                self.cur_lines = list()
         self.cur_lines.append(out_obj)
+        self.count += 1
         self.cur_lines = self.cur_lines[-self.max_file_lines:]
+        
+        if self.count % WRITE_FREQ == 0:
+            self.safe()
+
+        return True
+
+    def read(self):
+        return self.cur_lines
+
+    def safe(self):
         with open(self.write_file, "w") as fin:
             fin.write(json.dumps(self.cur_lines))
-        return True
 
 class Endpoints:
     def __init__(self, endpoint_list):
         self.endpoint_dict = {pt.write_key: pt for pt in endpoint_list}
+        self.endpoint_dict_read = {pt.read_key: pt for pt in endpoint_list}
 
     def write(self, write_key, out_obj):
         if write_key in self.endpoint_dict:
@@ -37,14 +54,27 @@ class Endpoints:
         else:
             return False
 
+    def read(self, read_key):
+        if read_key in self.endpoint_dict_read:
+            return self.endpoint_dict_read[read_key].read()
+        else:
+            return None
+
+    def safe_all(self):
+        for key, val in self.endpoint_dict.items():
+            val.safe()
+
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     url_base = None
     endpoints = None
 
-    def do_POST(self):
+    def check_setup(self):
         if self.url_base is None or self.endpoints is None:
             raise RuntimeError("WebhookHandler properties not set...")
 
+    def do_POST(self):
+        self.check_setup()
+    
         pattern = f"^/{self.url_base}/(.*)$"
         path_match = re.fullmatch(pattern, self.path)
 
@@ -102,6 +132,39 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200, "Success")
         self.end_headers()
 
+    def do_GET(self):
+        self.check_setup()
+    
+        pattern = f"^/{self.url_base}/get/(.*)$"
+        path_match = re.fullmatch(pattern, self.path)
+
+        if path_match is None:
+            self.log_error(f"Path match failed: {self.path}")
+            self.send_response(400, "Bad Request")
+            self.end_headers()
+            return
+
+        if len(path_match.groups()) != 1:
+            self.log_error(f"No groups matched: {self.path}")
+            self.send_response(400, "Bad Request")
+            self.end_headers()
+            return
+
+        read_key = path_match.groups()[0]
+
+        out_obj = self.endpoints.read(read_key)
+        
+        if out_obj is None:
+            self.log_error(f"Endpoint read fail: {read_key}")
+            self.send_response(400, "Bad Request")
+            self.end_headers()
+            return
+
+        self.send_response(200)
+        self.send_header("Content-type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(out_obj).encode("utf-8"))
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT","8080"))
     host = os.environ.get("HOST","")
@@ -120,4 +183,17 @@ if __name__ == "__main__":
     WebhookHandler.endpoints = endpoints
 
     server = http.server.ThreadingHTTPServer((host, port), WebhookHandler)
-    server.serve_forever()
+    def server_term_func(signum, frame):
+        thr = threading.Thread(target=lambda: server.shutdown())
+        thr.run()
+        thr.join()
+    signal.signal(signal.SIGTERM, server_term_func)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    except BaseException as exc:
+        pass
+    server.server_close()
+
+    endpoints.safe_all()

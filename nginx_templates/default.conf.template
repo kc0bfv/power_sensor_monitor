@@ -1,8 +1,0 @@
-server {
-    listen ${PORT};
-    server_name ${SERVER_NAME};
-
-    location / {
-        root ${ROOT};
-    }
-}
