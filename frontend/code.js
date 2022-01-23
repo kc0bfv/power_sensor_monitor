@@ -16,8 +16,7 @@ function get_read_key() {
 }
 
 function get_data(read_key, result_handler) {
-    const jsonsrc = "http://169.197.131.226:8080/webhook/get/" + read_key;
-    //const jsonsrc = "http://192.168.86.11:8080/webhook/get/" + read_key;
+    const jsonsrc = "https://data.lakehouse.sickendick.com/webhook/get/" + read_key;
     $.getJSON(jsonsrc, result_handler)
         .fail(function() { alert("Failed to get data..."); })
 }

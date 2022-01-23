@@ -1,11 +1,16 @@
 version: "3.9"
+networks:
+    reverse_proxy_network:
+        name: reverse_proxy_network
 services:
     webhook_catcher:
         build: ./webhook_catcher
-        ports:
-            - "8080:8080"
+        expose:
+            - 8080
         volumes:
             - ./webhook_data:/opt/webhook_data/
+        networks:
+            - reverse_proxy_network
         environment:
             PORT: "8080"
             URL_BASE: "webhook"
