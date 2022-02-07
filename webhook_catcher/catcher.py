@@ -158,8 +158,10 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
         self.check_setup()
 
         if self.path == f"/{self.url_base}/version/":
-            self.send_response(200, VERSION)
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
             self.end_headers()
+            self.wfile.write(VERSION)
             return
     
         pattern = f"^/{self.url_base}/get/(.*)$"
