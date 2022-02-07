@@ -8,7 +8,18 @@ import re
 import signal
 
 WRITE_FREQ = 100
+VERSION = "1.01"
 
+"""
+An Endpoint represents a webhook endpoint.  They may be read to and written
+to.  Writing stores more data referenced by the endpoing, and reading
+returns all the data at the endpoint.  They have a read_key that
+acts as their id when wanting to read.  They have a write_key that acts
+as their id when wanting to write to them.  The keys act as methods for
+simple authentication, and this way if someone has permission to write,
+they cannot necessarily read.  They correspond to a file in a directory
+named the same as the read_key.  They buffer writes up to the WRITE_FREQ.
+""" 
 class Endpoint:
     def __init__(self, write_key, read_key, write_dir, max_file_lines):
         self.write_key = write_key
@@ -19,6 +30,7 @@ class Endpoint:
         self.count = 0
         self.read_file()
 
+    # Read all the file data into the buffer, replacing current buffer
     def read_file(self):
         try:
             with open(self.write_file, "r") as fin:
@@ -26,6 +38,7 @@ class Endpoint:
         except FileNotFoundError:
             self.cur_lines = list()
 
+    # Save some data, buffered
     def write(self, out_obj):
         self.cur_lines.append(out_obj)
         self.count += 1
@@ -36,34 +49,41 @@ class Endpoint:
 
         return True
 
+    # Return all buffered data
     def read(self):
         return self.cur_lines
 
+    # Make sure all data is written out
     def safe(self):
         with open(self.write_file, "w") as fin:
             fin.write(json.dumps(self.cur_lines))
 
+# Endpoints keeps track of every Endpoint.
 class Endpoints:
     def __init__(self, endpoint_list):
         self.endpoint_dict = {pt.write_key: pt for pt in endpoint_list}
         self.endpoint_dict_read = {pt.read_key: pt for pt in endpoint_list}
 
+    # Write to a specific Endpoint, represented by its write_key
     def write(self, write_key, out_obj):
         if write_key in self.endpoint_dict:
             return self.endpoint_dict[write_key].write(out_obj)
         else:
             return False
 
+    # Read from a specific Endpoint, based on read_key
     def read(self, read_key):
         if read_key in self.endpoint_dict_read:
             return self.endpoint_dict_read[read_key].read()
         else:
             return None
 
+    # Make sure all Endpoints are written out
     def safe_all(self):
         for key, val in self.endpoint_dict.items():
             val.safe()
 
+# Webserver for webhooks
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     url_base = None
     endpoints = None
@@ -72,6 +92,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
         if self.url_base is None or self.endpoints is None:
             raise RuntimeError("WebhookHandler properties not set...")
 
+    # Handle a write
     def do_POST(self):
         self.check_setup()
     
@@ -132,8 +153,14 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200, "Success")
         self.end_headers()
 
+    # Handle a read
     def do_GET(self):
         self.check_setup()
+
+        if self.path == f"/{self.url_base}/version/":
+            self.send_response(200, VERSION)
+            self.end_headers()
+            return
     
         pattern = f"^/{self.url_base}/get/(.*)$"
         path_match = re.fullmatch(pattern, self.path)
