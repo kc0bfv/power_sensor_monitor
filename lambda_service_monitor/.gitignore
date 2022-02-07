@@ -1,0 +1,4 @@
+secrets.tf
+.terraform*
+terraform.tfstate*
+service_monitor.zip

@@ -1,0 +1,26 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:PutLogEventsBatch",
+                "logs:CreateLogGroup"
+            ],
+            "Resource": "arn:aws:logs:*:*:log-group:/aws/lambda/${loggroup_name}:*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "SES:SendEmail",
+                "SES:SendRawEmail"
+            ],
+            "Resource": [
+                "arn:aws:ses:*:*:identity/${to_addr}",
+                "arn:aws:ses:*:*:identity/${from_addr}"
+            ]
+        }
+    ]
+}
