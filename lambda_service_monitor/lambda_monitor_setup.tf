@@ -90,6 +90,11 @@ resource "aws_cloudwatch_event_target" "event_target" {
   rule = aws_cloudwatch_event_rule.event_rule.name
   arn  = aws_lambda_function.function.arn
 }
+resource "aws_cloudwatch_log_group" "log_group" {
+  name              = format("%s%s", "/aws/lambda/", aws_lambda_function.function.function_name)
+  retention_in_days = 120
+  tags              = { Environment = var.environ_tag }
+}
 resource "aws_lambda_permission" "perms" {
   # This permission lets EventBridge run the lambda
   statement_id  = "AllowEventBridgeExecution"
