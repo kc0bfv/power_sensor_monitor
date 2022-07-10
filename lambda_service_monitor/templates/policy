@@ -18,7 +18,9 @@
                 "SES:SendRawEmail"
             ],
             "Resource": [
-                "arn:aws:ses:*:*:identity/${to_addr}",
+                %{ for to_addr in to_addrs ~}
+                    "arn:aws:ses:*:*:identity/${to_addr}",
+                %{ endfor ~}
                 "arn:aws:ses:*:*:identity/${from_addr}"
             ]
         }

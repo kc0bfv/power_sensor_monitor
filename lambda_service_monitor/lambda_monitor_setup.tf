@@ -43,7 +43,7 @@ resource "aws_iam_policy" "policy" {
   path        = "/"
   policy = templatefile("templates/policy", {
     loggroup_name = join("_", [var.environ_tag, "function"])
-    to_addr       = var.to_addr
+    to_addrs       = var.to_addrs
     from_addr     = var.from_addr
   })
 
@@ -67,10 +67,12 @@ resource "aws_lambda_function" "function" {
   environment {
     variables = {
       monitor_url    = var.monitor_url
+      email_url      = var.email_url
       region         = var.region
       email_from     = var.from_addr
-      email_to       = var.to_addr
+      email_to       = "%{ for addr in var.to_addrs }${addr};%{ endfor }"
       diff_threshold = var.diff_threshold
+      timeout        = var.timeout
     }
   }
 

@@ -10,46 +10,50 @@ from typing import Optional
 
 import boto3
 
-"""
-Send email alerts using AWS SES.  Use environment variables for the
-default region, profile, email_from address and email_to address.
-All emails have the same subject - provided upon init.
-"""
-class EmailAlerter:
-    def __init__(self, subject: str, region: Optional[str] = None,
-            profile: Optional[str] = None, from_addr: Optional[str] = None,
-            to_addr: Optional[str] = None):
-        region_s = os.environ.get("region") if region is None else region
-        profile_s = os.environ.get("profile") if profile is None else profile
-        from_addr_s = os.environ["email_from"] if from_addr is None else from_addr
-        to_addr_s = os.environ["email_to"] if to_addr is None else to_addr
+SETTINGS = None
+def get_settings():
+    global SETTINGS
+    if SETTINGS is None:
+        SETTINGS = dict()
+        SETTINGS["region"] = os.environ.get("region")
+        SETTINGS["profile"] = os.environ.get("profile")
+        SETTINGS["from_addr"] = os.environ["email_from"]
+        SETTINGS["url"] = os.environ["monitor_url"]
+        SETTINGS["email_url"] = os.environ["email_url"]
+        SETTINGS["diff_threshold"] = int(os.environ.get("diff_threshold", "10"))
 
-        self.subject: str = subject
-        self.region: Optional[str] = region_s
-        self.profile: Optional[str] = profile_s
-        self.from_addr: Optional[str] = from_addr_s
-        self.to_addr: Optional[str] = to_addr_s
+        to_addr_s = os.environ["email_to"]
+        to_addr_list = [s.strip() for s in to_addr_s.split(";") if s.strip() != ""]
+        SETTINGS["to_addrs"] = to_addr_list
+        SETTINGS["timeout"] = int(os.environ.get("timeout", "10"))
+    return SETTINGS
+    
 
-    def send_email(self, msg_txt: str):
-        sess = boto3.session.Session(region_name=self.region, profile_name=self.profile)
-        ses = sess.client("ses")
-        response = ses.send_email(
-            Source = self.from_addr,
-            Destination = {"ToAddresses": [self.to_addr]},
-            Message = {
-                "Subject": {"Data": self.subject},
-                "Body": {"Text": {"Data": msg_txt} },
-            }
-        )
+def alert_failed(msg_txt: str = "Connection fail") -> None:
+    settings = get_settings()
+    subject = "ALERT: Power Sensor Monitor"
+    body = f"URL: {settings['email_url']}\nMSG: {msg_txt}"
 
-        print(f"SES Response: {response}")
+    sess = boto3.session.Session(region_name=settings["region"],
+            profile_name=settings["profile"])
+    ses = sess.client("ses")
+    response = ses.send_email(
+        Source = settings["from_addr"],
+        Destination = {"ToAddresses": settings["to_addrs"]},
+        Message = {
+            "Subject": {"Data": subject},
+            "Body": {"Text": {"Data": body} },
+        }
+    )
+
+    print(f"SES Response: {response}")
 
 """
 Check the sensor data for no current flow, the power being out, or no sensor
 return data recently.
 """
-def check_data(emailer: EmailAlerter, raw_data_str: str):
-    diff_threshold = int(os.environ.get("diff_threshold", "10"))
+def check_data(raw_data_str: str):
+    settings = get_settings()
     diffs_to_check = 4
 
     # Interpret the raw data
@@ -70,16 +74,20 @@ def check_data(emailer: EmailAlerter, raw_data_str: str):
     # Split the data portion up by commas
     data_strs = [[a.strip() for a in dsu.split(",")] for dsu in data_strs_unsplit]
 
-    # Grab the min, max, and the power source separately
+    # Grab the temp, min, max, and the power source separately
+    data_temp = [int(ds[1]) for ds in data_strs]
     data_mins = [int(ds[4]) for ds in data_strs]
     data_maxs = [int(ds[5]) for ds in data_strs]
     data_on_vins = [ds[7] == '"VIN"' for ds in data_strs]
+
+    # Find the temperatures below or at 32 - freezing
+    low_temps = [temp for temp in data_temp if temp <= 32]
 
     # Calculate the differences between min and max
     data_diffs = [mx-mn for (mn, mx) in zip(data_mins, data_maxs)]
 
     # Keep only the differences greater than our on/off threshold
-    big_diffs = [diff for diff in data_diffs if diff > diff_threshold]
+    big_diffs = [diff for diff in data_diffs if diff > settings["diff_threshold"]]
 
     # Strip the "Z" for zulu off the published_at times, then convert their times
     pub_at_with_z = [p for p in published_ats if p[-1] == "Z"]
@@ -98,7 +106,8 @@ def check_data(emailer: EmailAlerter, raw_data_str: str):
     alerts = []
 
     # Alert if more than two of the checked entries are off
-    if len(big_diffs) < (diffs_to_check - 2):
+    # and if more than two of the temperatures are 32 or below
+    if len(big_diffs) < (diffs_to_check - 2) and len(low_temps) > 2:
         alerts.append("Bulbs may be out")
     
     # Alert if not all the power entries are "VIN"
@@ -114,35 +123,33 @@ def check_data(emailer: EmailAlerter, raw_data_str: str):
         alerts.append("Sensor hasn't reported enough recent data")
 
     if len(alerts) > 0:
-        emailer.send_email("\n".join(alerts))
+        alert_failed("\n".join(alerts))
 
     return True
 
 # Return False or error if user needs to be notified about failure
-def run_monitor(emailer: EmailAlerter):
-    url = os.environ["monitor_url"]
-    req = urllib.request.Request(url)
+def run_monitor():
+    settings = get_settings()
+    req = urllib.request.Request(settings["url"])
     try:
-        with urllib.request.urlopen(req, timeout=1) as urlf:
+        with urllib.request.urlopen(req, timeout=settings["timeout"]) as urlf:
             data = urlf.read()
     except urllib.error.HTTPError as err:
         raise err
     else:
-        return check_data(emailer, data)
+        return check_data(data)
     print("End of run monitor")
     return False
 
 def service_monitor(event, context):
-    emailer = EmailAlerter("ALERT: Power Sensor Monitor")
-
     try:
-        if not run_monitor(emailer):
-            emailer.send_email("Connection fail: returned false")
+        if not run_monitor():
+            alert_failed("Connection fail: returned false")
     except BaseException as e:
-        emailer.send_email("Connection fail: {}".format(e))
+        alert_failed("Connection fail: {}".format(e))
         raise e
     except:
-        emailer.send_email("Connection fail: non-BaseException?")
+        alert_failed("Connection fail: non-BaseException?")
         raise
         
 
