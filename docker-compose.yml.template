@@ -4,8 +4,8 @@ networks:
         external: true
 services:
     webhook_catcher:
+        image: kc0bfv/power_sensor_monitor
         restart: unless-stopped
-        build: ./webhook_catcher
         expose:
             - 8080
         volumes:
