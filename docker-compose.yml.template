@@ -4,6 +4,7 @@ networks:
         external: true
 services:
     webhook_catcher:
+        restart: unless-stopped
         build: ./webhook_catcher
         expose:
             - 8080

@@ -1,0 +1,32 @@
+name: Build and Push Docker Image
+
+on:
+    release:
+        types: [published]
+
+jobs:
+    build_and_push:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Repo
+              uses: actions/checkout@v3
+
+            - name: Login to Docker Hub
+              uses: docker/login-action@v2
+              with:
+                username: ${{ secrets.DOCKERHUB_USERNAME }}
+                password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Extract metadata for Docker Hub
+              id: meta
+              uses: docker/metadata-action@v4
+              with:
+                images: kc0bfv/power_sensor_monitor
+
+            - name: Build and push the Docker image
+              uses: docker/build-push-action@v4
+              with:
+                context: ./webhook_catcher
+                push: true
+                tags: ${{ steps.meta.outputs.tags }}
+                labels: ${{ steps.meta.outputs.labels }}

@@ -2,3 +2,4 @@ webhook_data/*
 !webhook_data/.keep_dir
 
 webhook_catcher/temp_dir/*
+*.swp
